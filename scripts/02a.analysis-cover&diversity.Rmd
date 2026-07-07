@@ -1,0 +1,440 @@
+---
+title: "Percent Cover & Diversity"
+author: "Jamie McDevitt-Irwin"
+date: "2023-10-12"
+output: html_document
+---
+
+
+Notes
+- we removed time zero from the model because we are not interested in "slopes" 
+
+# Packages
+```{r, echo=FALSE}
+library(tidyverse);library(ggplot2);library(vegan);library(zoo);library(ggpubr);library(plotly);library(ggordiplots);library(ecotraj);library(DHARMa);library(ggeffects);library(emmeans);library(indicspecies);library(lme4);library(performance);library(glmmTMB)
+```
+
+# Load Data
+```{r}
+load("../data/created-data/broad.df_long.RData")
+load("../data/created-data/broad.df_wide.RData")
+load("../data/created-data/data_long.RData")
+load("../data/created-data/data_wide.RData")
+load("../data/created-data/diversity.df_wide.RData")
+load("../data/created-data/herbivores_long.RData")
+load("../data/created-data/metadata.RData")
+
+```
+
+
+# Percent Cover
+```{r}
+pd <- position_dodge(0.2)
+
+# Total algae cover
+p_total.cover <-  broad.df_wide %>%
+  group_by(Treatment, Time_point) %>%
+  summarize(mean=mean(Total.Algae.Cover),
+            sd=sd(Total.Algae.Cover),
+            se=sd/sqrt(n())) %>%
+  ggplot(aes(y=mean, x=Time_point, group=Treatment, colour=Treatment)) +
+  geom_pointrange(aes(ymin=mean-se, ymax=mean+se),
+                  size=1.2,
+                   position=pd) +
+  geom_line(alpha=0.3)+
+  #facet_wrap(~Treatment) + 
+  theme_pubr(base_size=16) +
+    theme(axis.text.x = element_blank())+
+  labs(y="Total Algae Cover (+/- SE)", 
+       x= "",
+       colour= "Treatment")  +
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF","#009999" , "#FF9966")) 
+
+
+p_total.cover 
+
+ggsave(p_total.cover, file="../figures/total-algae-cover.png",
+       height=7, width=11)
+
+
+
+
+
+# Perennial vs ephemeral
+p_perennial.vs.ephemeral <- broad.df_long %>%
+  filter(Taxa %in% c("Perennial", "Ephemeral")) %>%
+  filter(Time_point %in% c("Time Zero",
+                           "One Month",
+                           "Two Months",
+                           "Three Months",
+                           "Four Months",
+                           "Five Months")) %>%
+  group_by(Taxa, Treatment, Time_point) %>%
+  summarize(mean=mean(Percent.cover),
+            sd=sd(Percent.cover),
+            se=sd/sqrt(n())) %>%
+  ggplot(aes(y=mean, x=Time_point, 
+             group= Taxa, shape=Taxa,
+             colour=Treatment)) +
+  geom_pointrange(aes(ymin=mean-se, ymax=mean+se),
+                  size=1) +
+  geom_line()+
+  facet_wrap(~Treatment) + 
+  theme_pubr(base_size=16) +
+    theme(axis.text.x = element_blank())+
+  labs(y="Mean Percent Cover (+/- SE)", 
+       x= "Sampling Month",
+       shape= "Algae")+ 
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF","#009999" ,"#FF9966"))+
+  scale_shape_manual(values=c(2,16))+
+  guides(colour="none")
+
+  
+p_perennial.vs.ephemeral
+
+ggsave(p_perennial.vs.ephemeral, file="../figures/perennial-vs-ephemeral.png",
+       height=7, width=10)
+
+
+
+
+# Plot only the abundant taxa 
+abund <- data_long %>%
+  group_by(Taxa) %>%
+  summarize(mean=mean(Percent.cover)) %>%
+  arrange(desc(mean)) %>% 
+  # filter out taxa that are above 1% average cover thruoghout the whole time series 
+  filter(mean > .01)
+
+p_abundant <- data_long %>%
+  filter(Taxa %in% abund$Taxa) %>%
+  ggplot(aes(y=Percent.cover, x=Date, color=Taxa, fill=Taxa)) +
+  geom_smooth() +
+  facet_wrap(~ Treatment) + 
+  theme_pubr(base_size=16)
+p_abundant
+ggsave(p_abundant, file="../figures/most-abundant-taxa.png",
+       height=7, width=13)
+
+
+
+
+
+
+
+
+# Relative Abundance
+p_relabund_treatment <- data_long %>%
+  # get rid of time zero 
+  filter(Time_point != "Time Zero") %>%
+  # only plot the most abundant taxa, put others as "other" category
+  mutate(Abund.Taxa= ifelse(!Taxa %in% abund$Taxa, "Other", Taxa)) %>%
+  mutate(Abund.Taxa = fct_relevel(Abund.Taxa, "Other", after = Inf)) %>%
+  # group by time point, treatment and taxa
+  group_by(Time_point, Treatment, Abund.Taxa) %>%
+  # average over the plots
+  summarize(mean=mean(Percent.cover)) %>%
+  ggplot(aes(x=as.factor(Treatment), y=mean, fill=Abund.Taxa, color=Abund.Taxa)) + 
+  geom_bar(aes(), stat="identity", position="fill") +
+  facet_wrap(~Time_point)+
+  theme_pubr()+ 
+  theme(legend.position="right") +
+  labs(x = "Treatment", y="Relative Abundance")  +
+  theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+
+p_relabund_treatment
+
+ggsave(p_relabund_treatment, file="../figures/relative-abundance.png",
+       height=10, width=13)
+
+
+# Shannon Diversity
+
+p_shannon <- diversity.df_wide %>%
+  #filter(Time_point != "Time Zero") %>%
+  group_by(Treatment, Time_point) %>%
+  summarize(mean=mean(Shannon),
+            sd=sd(Shannon),
+            se=sd/sqrt(n())) %>%
+  ggplot(aes(y=mean, x=Time_point, group=Treatment, colour=Treatment)) +
+  geom_pointrange(aes(ymin=mean-se, ymax=mean+se), position=pd, size=1.25) +
+  geom_line(position=pd,
+            alpha=0.3)+
+    theme(axis.text.x = element_blank())+
+  labs(y="Shannon Diversity (+/- SE)", 
+       x= "Sampling Month")+
+  theme_pubr(base_size=16)+
+  #facet_wrap(~Treatment) +
+      #theme(axis.text.x = element_blank())+
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF","#009999" ,"#FF9966"))+
+  scale_x_discrete(labels = c("Time Zero" = "0", 
+                              "One Month" = "1", 
+                              "Two Months" = "2",
+                              "Three Months" = "3",
+                              "Four Months" = "4",
+                              "Five Months" = "5",
+                              "Six Months" = "6",
+                              "Seven Months" = "7", 
+                              "Eight Months" = "8",
+                              "Nine Months" = "9",
+                              "Ten Months" = "10",
+                              "Eleven Months" = "11",
+                              "Twelve Months" = "12"))
+p_shannon
+
+
+ggsave(p_shannon, file="../figures/shannon-diversity.png",
+       height=7, width=13)
+
+
+# all treatments show the same trend of increasing diversity except for unmanipulated, but they also show a plateau eventually 
+
+
+p_fig1 <- ggarrange(p_total.cover,
+          p_shannon,
+          common.legend = TRUE,
+          nrow=2,
+          legend = "right")
+
+p_fig1
+
+ggsave(p_fig1, file= "../figures/figure1.png",
+       height=8,
+       width=10)
+```
+
+
+
+
+
+
+# Mixed Models
+https://cran.r-project.org/web/packages/emmeans/vignettes/AQuickStart.html
+https://rdrr.io/cran/emmeans/man/emtrends.html
+https://cran.r-project.org/web/packages/emmeans/vignettes/interactions.html 
+https://stats.stackexchange.com/questions/563765/probing-categorical-3-levels-x-continuous-var-with-emmeans
+
+
+
+We decided to include month as a categorical factor after we ran models with it as a continuous factor and it wasn't fitting the data well because of large spikes in one month for some of the treatments. We have enough power to include it as a categorical factor and it makes more sense for evaluating this dataset. 
+
+"The most “appropriate” choice (treating Time as a factor or a continuous variable) will depend on our goals. If we want to see WHERE changes occurred (e.g., across particular time points), then we will want to treat time as a categorical variable. If we want to see the strength of the relationship (i.e., how strongly [and linearly] related Time and MLT scores are), then we will want to treat Time as a continuous variable."
+https://kristopherkyle.github.io/IntroQuantALRM/8_Linear_Mixed_Effects_Models.html
+
+
+
+  
+## Total Cover
+
+```{r}
+### Total Algae Cover ###
+hist(broad.df_wide$Total.Algae.Cover)
+range(broad.df_wide$Total.Algae.Cover)
+str(broad.df_wide)
+#  month is continuous --> but we want to run as categorical 
+# treatment is categorical
+
+unique(broad.df_wide$Time_point)
+
+# get rid of time zero
+df <- broad.df_wide %>%
+  filter(Time_point != "Time Zero") %>%
+  # filter(Time_point %in% c(
+  #                          "One Month",
+  #                          "Two Months",
+  #                          "Three Months",
+  #                          "Four Months",
+  #                          "Five Months")) %>%
+  droplevels()
+str(df)
+hist(df$Total.Algae.Cover)
+
+
+model1 <- lmer(Total.Algae.Cover ~ 
+                 as.factor(Month) * Treatment + 
+                 (1|Block/Plot) , data = df)
+summary(model1)
+performance::r2(model1)  
+car::Anova(model1, type=2)  # all significant
+
+
+# Model Diagnostics 
+# try the performance package
+check_model(model1) # high collinearity but its two interacting categorical factors so doesn't matter https://statisticalhorizons.com/multicollinearity/ 
+# looks ok!
+# homogeneity of variance is a bit hump shaped
+# looks better now
+
+
+
+# check against fixed effects
+res_simulated <- simulateResiduals(model1, plot=TRUE) # i think this looks ok too, large sample sizes will usually make dharma significant 
+
+plotResiduals(res_simulated, as.factor(df$Month)) # this one looks like the biggest driver
+plotResiduals(res_simulated, df$Treatment)
+
+
+# EMMEANS
+emmip(model1, Treatment ~ Month, cov.reduce = range)
+
+em <- pairs(emmeans(model1, ~Treatment*as.factor(Month)), simple="Treatment")
+em
+# this does pairwise comparisons between levels of treatment across each month 
+
+
+
+
+
+model <- glmmTMB(
+  Total.Algae.Cover ~ as.factor(Month) * Treatment + (1|Block/Plot),
+  # Data and Family (assuming your Algae Cover is approximately Normal)
+  dispformula = ~ Treatment,
+  data = df,
+  family = gaussian(link=identity)
+)
+
+check_model(model) # looks alot better
+
+# check against fixed effects
+res_simulated <- simulateResiduals(model, plot=TRUE) # i think this looks ok too, large sample sizes will usually make dharma significant 
+
+plotResiduals(res_simulated, as.factor(df$Month)) # this one looks like the biggest driver
+plotResiduals(res_simulated, df$Treatment)
+
+
+em <- pairs(emmeans(model, ~Treatment*as.factor(Month)), simple="Treatment")
+em
+# this does pairwise comparisons between levels of treatment across each month 
+
+
+```
+
+
+Try a beta distribution because we see some residual patterns and maybe modeling it this way will be better
+```{r}
+library(glmmTMB)
+
+# Have to nudge the true 1's because you can't have these in a beta distribution
+# https://psycnet.apa.org/record/2006-03820-004 
+n_obs <- nrow(df)
+df$Total.Algae.Cover_Transformed <- (df$Total.Algae.Cover * (n_obs - 1) + 0.5) / n_obs
+
+range(df$Total.Algae.Cover_Transformed)
+hist(df$Total.Algae.Cover_Transformed)
+
+
+
+model_beta <- glmmTMB(
+  Total.Algae.Cover_Transformed ~ as.factor(Month) * Treatment + (1|Block/Plot),
+  data = df,
+  family = beta_family(link = "logit")
+)
+
+check_model(model_beta) # looks good
+
+# check against fixed effects
+res_simulated <- simulateResiduals(model_beta, plot=TRUE) # some significance, but we do have a big N
+
+plotResiduals(res_simulated,as.factor(df$Month)) # sig?
+plotResiduals(res_simulated, df$Treatment) # sig
+
+
+# Model dispersion
+model_disp <- glmmTMB(
+  Total.Algae.Cover_Transformed ~ as.factor(Month) * Treatment + (1|Block/Plot),
+  dispformula = ~ as.factor(Month),
+  data = df,
+  family = beta_family(link = "logit")
+)
+
+summary(model_disp)
+performance::r2(model_disp) # doesn't work becasue the model is too complex, verify model fit with AIC
+
+
+model_nodisp <- glmmTMB(
+  Total.Algae.Cover_Transformed ~ as.factor(Month) * Treatment + (1|Block/Plot),
+  # constant dispersion
+  dispformula = ~ 1,
+  data = df,
+  family = beta_family(link = "logit")
+)
+
+AIC(model_disp, model_nodisp) # dispersion formula is much better 
+
+check_model(model_disp)
+
+# check against fixed effects
+res_simulated <- simulateResiduals(model_disp, plot=TRUE) # i think this looks ok too, large sample sizes will usually make dharma significant 
+
+plotResiduals(res_simulated, as.factor(df$Month)) # this one looks like the biggest driver
+plotResiduals(res_simulated, df$Treatment)
+
+# this fits the data the best 
+
+
+
+# ANOVA and post-hoc contrasts 
+car::Anova(model_disp, type=2) # same results 
+
+em <- pairs(emmeans(model_disp, ~Treatment*as.factor(Month)), 
+            simple="Treatment",
+            adjust="Tukey")
+em
+```
+Over time, always caged, unamnipulated control  have a decrease in algae cover. Whereas always uncaged and the cage control have an increase in algae cover. Caged for one month stays relatively the same (basically what we are seeing in the raw data plots).
+
+
+
+
+
+## Diversity
+```{r}
+### Species Diversity ###
+hist(diversity.df_wide$Shannon)
+
+df <- diversity.df_wide %>%
+  filter(Time_point != "Time Zero") %>%
+  # filter(Time_point %in% c("Time Zero",
+  #                          "One Month",
+  #                          "Two Months",
+  #                          "Three Months",
+  #                          "Four Months",
+  #                          "Five Months",
+  #                          "Six Months")) %>%
+  droplevels()
+
+model1_diversity <- lmer(Shannon ~ as.factor(Month) * Treatment + (1|Block/Plot), data = df)
+
+
+summary(model1_diversity)
+performance::r2(model1_diversity)
+
+car::Anova(model1_diversity, type=2) # interaction is not sig
+
+model2_diversity <- lmer(Shannon ~ as.factor(Month) + Treatment + (1|Block/Plot), data = df)
+
+performance::r2(model2_diversity)
+
+
+car::Anova(model2_diversity, type=2) # only month is significant
+
+# Model Diagnostics 
+performance::check_model(model2_diversity) # looks amazing :)
+
+# check against fixed effects
+res_simulated <- simulateResiduals(model2_diversity, plot=TRUE) # some significance, but we do have a big N
+
+plotResiduals(res_simulated,as.factor(df$Month)) # ok
+plotResiduals(res_simulated, df$Treatment) # ok
+
+
+
+
+#  EMMEANS
+emmip(model2_diversity, ~as.factor(Month), cov.reduce = range)
+
+# didn't report because we aren't interested in this
+pairs(emmeans(model2_diversity, ~as.factor(Month)),adjust="Tukey")
+
+```

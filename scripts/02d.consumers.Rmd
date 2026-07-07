@@ -1,0 +1,147 @@
+---
+title: "02d.herbivores"
+author: "Jamie McDevitt-Irwin"
+date: "2026-01-14"
+output: html_document
+---
+
+
+Note
+- keeping all consumers, even whelk which is not a herbivore (all the rest are herbivores in some way), because even though algae are the main group, there are other taxa as well (e.g., barnacles)
+
+# Packages
+```{r, echo=FALSE}
+library(tidyverse);library(ggplot2);library(vegan);library(zoo);library(ggpubr);library(plotly);library(ggordiplots);library(ecotraj);library(DHARMa);library(ggeffects);library(emmeans);library(indicspecies);library(lme4)
+```
+
+
+# Load Data
+```{r}
+load("../data/created-data/broad.df_long.RData")
+load("../data/created-data/broad.df_wide.RData")
+load("../data/created-data/data_long.RData")
+load("../data/created-data/data_wide.RData")
+load("../data/created-data/diversity.df_wide.RData")
+load("../data/created-data/herbivores_long.RData")
+load("../data/created-data/metadata.RData")
+
+```
+
+
+
+
+# Data Cleaning
+```{r}
+consumers_long.2 <- herbivores_long %>%
+  mutate(Caged.YN = ifelse(Treatment == "Always caged", "Y",
+                           ifelse(Treatment == "Caged for one month" & 
+                                    Time_point == "One Month", "Y", "N")))
+
+# reorder time points levels
+consumers_long.2$Time_point <- factor(consumers_long.2$Time_point,
+                               levels=c("Pre",
+                                 "One Month", 
+                                        "Two Months", 
+                                        "Three Months", 
+                                        "Four Months", 
+                                        "Five Months", 
+                                        "Six Months", 
+                                        "Seven Months", 
+                                        "Eight Months",
+                                        "Nine Months",
+                                        "Ten Months",
+                                        "Eleven Months",
+                                        "Twelve Months"))
+  
+```
+
+
+# Standardize by sampling area
+- this is because our cages surveyed a greater area than all others since we surveyed beyond the quadrat (so more likely to get consumers)
+
+25cm X 25cm = 625cm2 (full cage area)
+20cm X 20cm = 400cm2 (quadrat area)
+```{r}
+
+consumers_long.stand <- consumers_long.2 %>% 
+  mutate(Count.corrected = case_when(
+    # Condition 1: One Month + Caged for one month
+    Time_point == "One Month" & Treatment == "Caged for one month" ~ Count / 625,
+    
+    # Condition 2: Always caged + Pre/Post
+    Treatment == "Always caged" & Time_point %in% c("Pre", "Post") ~ Count / 400,
+    
+    # Condition 3: Always caged (other time points)
+    Treatment == "Always caged" ~ Count / 625,
+    
+    # Default: Everything else
+    TRUE ~ Count / 400
+  )) %>%
+  select(-Count) %>%
+  mutate(Count.corrected.400cm2= Count.corrected*400)
+
+  
+consumers_wide.stand <- consumers_long.stand %>%
+  pivot_wider(names_from=Taxa, 
+              values_from = Count.corrected.400cm2, 
+              values_fill = list(Value = 0))
+```
+
+
+
+# Summaries
+```{r}
+# What are the most common consumers within our experimental plots?
+consumers_long.stand %>%
+  # filter out dates we aren't interested in 
+  filter(!Time_point == "NA") %>%
+  group_by(Taxa) %>%
+  summarize(mean=mean(Count.corrected.400cm2)) %>%
+  arrange(desc(mean))
+# most abundant is limpet and then tegula
+```
+
+
+# Plots
+```{r}
+consumers.treatment <- consumers_long.stand  %>%
+  # filter out NA time points
+    filter(Time_point != "Pre")  %>%
+  # sum up consumers in each plot and treatment
+  group_by(Time_point, Treatment, Plot) %>%
+  summarize(sum=sum(Count.corrected.400cm2)) %>%
+  # average over each plot 
+  group_by(Time_point, Treatment) %>%
+  summarize(mean=mean(sum),
+            sd=sd(sum),
+            se=sd/sqrt(n())) %>%
+  ggplot(aes(x=Treatment, y=mean, col=Treatment)) +
+  geom_pointrange(aes(ymin= mean-se, ymax= mean+se)) +
+  facet_wrap(~Time_point) +
+    scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF",
+                                 "#009999" ,"#FF9966")) +
+  theme_pubr(base_size=16) +
+  labs(y="Mean Consumer Density +/- (SE) per 400 cm2") +
+    theme(axis.text.x = element_blank())
+
+consumers.treatment
+  
+ggsave(consumers.treatment, file="../figures/consumers.treatment.png", width=10, height=8)
+
+```
+
+# Pre data
+```{r}
+consumers_long.stand %>%
+  filter(Time_point == "Pre") %>%
+# sum up consumers in each plot and treatment
+  group_by(Time_point, Plot) %>%
+  summarize(sum=sum(Count.corrected.400cm2)) %>%
+  # average over each plot 
+  group_by(Time_point) %>%
+  summarize(mean=mean(sum),
+            sd=sd(sum),
+            se=sd/sqrt(n()))
+# average of 4.82 per 400cm2 
+  
+```

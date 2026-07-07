@@ -1,0 +1,450 @@
+---
+title: "Multivariate analyses"
+author: "Jamie McDevitt-Irwin"
+date: "2023-10-12"
+output: html_document
+---
+
+# Packages
+```{r, echo=FALSE}
+library(tidyverse);library(ggplot2);library(vegan);library(zoo);library(ggpubr);library(plotly);library(ggordiplots);library(ecotraj);library(DHARMa);library(ggeffects);library(emmeans);library(indicspecies);library(lme4)
+```
+
+
+# Load Data
+```{r}
+load("../data/created-data/broad.df_long.RData")
+load("../data/created-data/broad.df_wide.RData")
+load("../data/created-data/data_long.RData")
+load("../data/created-data/data_wide.RData")
+load("../data/created-data/diversity.df_wide.RData")
+load("../data/created-data/herbivores_long.RData")
+load("../data/created-data/metadata.RData")
+
+```
+
+# NMDS
+## One Month
+```{r}
+# NMDS: One Month
+data_one.month <- data_wide %>%
+  filter(Time_point == "One Month") %>%
+  droplevels()
+
+
+data.mds <- metaMDS(data_one.month[8:36], distance = "bray")
+data.mds 
+data.mds$stress #0.07491356
+stressplot(data.mds) # Shepard plot 
+
+p_nmds.1month <- gg_ordiplot(data.mds, 
+                    groups= data_one.month$Treatment, 
+                    hull=FALSE, ellipse=TRUE, spiders=FALSE,
+                    kind="sd", pt.size=4) 
+p_nmds.1month
+
+# Significant Species
+spp.fit <- envfit(data.mds, data_one.month[8:36], permutations = 999) # this fits species vectors
+spp.scrs <- as.data.frame(scores(spp.fit, display = "vectors")) #save species intrinsic values into dataframe
+spp.scrs <- cbind(spp.scrs, Species = rownames(spp.scrs)) #add species names to dataframe
+spp.scrs <- cbind(spp.scrs, pval = spp.fit$vectors$pvals) #add pvalues to dataframe so you can select species which are significant
+#spp.scrs<- cbind(spp.scrs, abrev = abbreviate(spp.scrs$Species, minlength = 6)) #abbreviate species names
+sig.spp.scrs <- subset(spp.scrs, pval< 0.01) #subset data to show species significant at 0.05
+
+head(sig.spp.scrs)
+sig.spp.scrs
+
+
+# refine the plot (you can pull out "plot" from the gg_ordiplot call)
+p_nmds.1 <- p_nmds.1month$plot + 
+  theme_bw()+ 
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position= "none") + 
+  labs(colour= "Treatment") +
+  theme_pubr(base_size = 16)+
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF","#009999" ,"#FF9966")) +
+  ggtitle("a) One Month")+
+  ylim(1.75,-1.75) +
+  xlim(-1.75,1.75)
+  
+
+
+p_nmds.1
+
+ggsave(p_nmds.1, file="../figures/nmds-1month.png",
+       height=8, width=9)
+
+
+
+# significant species only
+p_species.1 <- ggplot()+
+  theme_bw()+ 
+  labs(colour= "Treatment") +
+  theme_pubr(base_size = 16)+
+  geom_segment(data = sig.spp.scrs, aes(x = 0, xend=NMDS1, y=0, yend=NMDS2), 
+               arrow = arrow(length = unit(0.25, "cm")), colour = "grey10", lwd=0.3)+ #add vector arrows of significant species
+  ggrepel::geom_text_repel(data = sig.spp.scrs, 
+                           aes(x=NMDS1, y=NMDS2, label = Species), 
+                           cex = 4, direction = "both", segment.size = 0.25) +  ggtitle("b)")+
+  ylim(1.75,-1.75) +
+  xlim(-1.75,1.75)+
+  labs(x="NMDS1", y="NMDS2") 
+
+p_species.1
+  
+```
+
+## Two Months
+```{r}
+# NMDS: Two Months
+data_two.months <- data_wide %>%
+  filter(Time_point == "Two Months") %>%
+  droplevels()
+
+
+data.mds <- metaMDS(data_two.months[8:36], distance = "bray")
+data.mds 
+data.mds$stress#0.1261327
+stressplot(data.mds) # Shepard plot 
+
+p_nmds.2month <- gg_ordiplot(data.mds, 
+                    groups= data_two.months$Treatment, 
+                    hull=FALSE, ellipse=TRUE, spiders=FALSE,
+                    kind="sd", pt.size=4) 
+p_nmds.2month
+
+# Significant Species
+spp.fit <- envfit(data.mds, data_two.months[8:36], permutations = 999) # this fits species vectors
+spp.scrs <- as.data.frame(scores(spp.fit, display = "vectors")) #save species intrinsic values into dataframe
+spp.scrs <- cbind(spp.scrs, Species = rownames(spp.scrs)) #add species names to dataframe
+spp.scrs <- cbind(spp.scrs, pval = spp.fit$vectors$pvals) #add pvalues to dataframe so you can select species which are significant
+#spp.scrs<- cbind(spp.scrs, abrev = abbreviate(spp.scrs$Species, minlength = 6)) #abbreviate species names
+sig.spp.scrs <- subset(spp.scrs, pval<0.01) #subset data to show species significant at 0.05
+
+head(sig.spp.scrs)
+sig.spp.scrs
+
+
+# refine the plot (you can pull out "plot" from the gg_ordiplot call)
+p_nmds.2 <- p_nmds.2month$plot + 
+  theme_bw()+ 
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position= "none") + 
+  labs(colour= "Treatment") +
+  theme_pubr(base_size = 16)+
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF","#009999" ,"#FF9966")) +
+  scale_alpha_manual(values=c(0.5, 0.5, 0.5, 0.5, 0.5)) +
+  ggtitle("c) Two Months")+
+  ylim(1.75,-1.75) +
+  xlim(-1.75,1.75)
+  
+
+
+p_nmds.2
+
+ggsave(p_nmds.2, file="../figures/nmds-2months.png",
+       height=8, width=9)
+
+
+# refine the plot (you can pull out "plot" from the gg_ordiplot call)
+p_species.2 <- ggplot()+
+  theme_bw()+ 
+  labs(colour= "Treatment") +
+  theme_pubr(base_size = 16)+
+  geom_segment(data = sig.spp.scrs, aes(x = 0, xend=NMDS1, y=0, yend=NMDS2), 
+               arrow = arrow(length = unit(0.25, "cm")), colour = "grey10", lwd=0.3)+ #add vector arrows of significant species
+  ggrepel::geom_text_repel(data = sig.spp.scrs, 
+                           aes(x=NMDS1, y=NMDS2, label = Species), 
+                           cex = 4, direction = "both", segment.size = 0.25) +
+  ggtitle("d) ")+
+  ylim(1.75,-1.75) +
+  xlim(-1.75,1.75)+
+  labs(x="NMDS1", y="NMDS2") 
+  
+
+
+p_species.2
+```
+
+
+
+## Five Months
+```{r}
+# NMDS: Five Months
+data_five.months <- data_wide %>%
+  filter(Time_point == "Five Months") %>%
+  droplevels()
+
+
+data.mds <- metaMDS(data_five.months[8:36], distance = "bray")
+data.mds 
+data.mds$stress#0.1261327
+stressplot(data.mds) # Shepard plot 
+
+p_nmds.5month <- gg_ordiplot(data.mds, 
+                    groups= data_five.months$Treatment, 
+                    hull=FALSE, ellipse=TRUE, spiders=FALSE,
+                    kind="sd", pt.size=4) 
+p_nmds.5month
+
+# Significant Species
+spp.fit <- envfit(data.mds, data_five.months[8:36], permutations = 999) # this fits species vectors
+spp.scrs <- as.data.frame(scores(spp.fit, display = "vectors")) #save species intrinsic values into dataframe
+spp.scrs <- cbind(spp.scrs, Species = rownames(spp.scrs)) #add species names to dataframe
+spp.scrs <- cbind(spp.scrs, pval = spp.fit$vectors$pvals) #add pvalues to dataframe so you can select species which are significant
+#spp.scrs<- cbind(spp.scrs, abrev = abbreviate(spp.scrs$Species, minlength = 6)) #abbreviate species names
+sig.spp.scrs <- subset(spp.scrs, pval<0.01) #subset data to show species significant at 0.05
+
+head(sig.spp.scrs)
+sig.spp.scrs
+
+
+# refine the plot (you can pull out "plot" from the gg_ordiplot call)
+p_nmds.five <- p_nmds.5month$plot + 
+  theme_bw()+ 
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position= "none") + 
+  labs(colour= "Treatment") +
+  theme_pubr(base_size = 16)+
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF","#009999" ,"#FF9966")) +
+  scale_alpha_manual(values=c(0.5, 0.5, 0.5, 0.5, 0.5)) +
+  ggtitle("e) Five Months")+
+  ylim(1.75,-1.75) +
+  xlim(-1.75,1.75)
+  
+
+
+p_nmds.five
+
+ggsave(p_nmds.five, file="../figures/nmds-five-months.png",
+       height=8, width=9)
+
+
+# refine the plot (you can pull out "plot" from the gg_ordiplot call)
+p_species.five <- ggplot()+
+  theme_bw()+ 
+  labs(colour= "Treatment") +
+  theme_pubr(base_size = 16)+
+  geom_segment(data = sig.spp.scrs, aes(x = 0, xend=NMDS1, y=0, yend=NMDS2), 
+               arrow = arrow(length = unit(0.25, "cm")), colour = "grey10", lwd=0.3)+ #add vector arrows of significant species
+  ggrepel::geom_text_repel(data = sig.spp.scrs, 
+                           aes(x=NMDS1, y=NMDS2, label = Species), 
+                           cex = 4, direction = "both", segment.size = 0.25) +
+  ggtitle("f) ")+
+  ylim(1.75,-1.75) +
+  xlim(-1.75,1.75)+
+  labs(x="NMDS1", y="NMDS2")
+  
+
+
+p_species.five
+
+ggsave(p_species.five, file="../figures/nmds-species-five-months.png",
+       height=8, width=9)
+```
+
+
+
+## Twelve months
+```{r}
+# NMDS: Twelve
+data_twelve.months <- data_wide %>%
+  filter(Time_point == "Twelve Months") %>%
+  droplevels()
+
+
+dim(data_twelve.months)
+colnames(data_twelve.months)
+str(data_twelve.months)
+
+data.mds <- metaMDS(data_twelve.months[8:36], distance = "bray")
+data.mds 
+data.mds$stress # 0.1086919
+stressplot(data.mds) # Shepard plot 
+
+p_nmds.12months <- gg_ordiplot(data.mds, 
+                    groups= data_twelve.months$Treatment, 
+                    hull=FALSE, ellipse=TRUE, spiders=FALSE,
+                    kind="sd", pt.size=4) 
+p_nmds.12months
+
+# Significant Species
+spp.fit <- envfit(data.mds, data_twelve.months[8:36], permutations = 999) # this fits species vectors
+spp.scrs <- as.data.frame(scores(spp.fit, display = "vectors")) #save species intrinsic values into dataframe
+spp.scrs <- cbind(spp.scrs, Species = rownames(spp.scrs)) #add species names to dataframe
+spp.scrs <- cbind(spp.scrs, pval = spp.fit$vectors$pvals) #add pvalues to dataframe so you can select species which are significant
+#spp.scrs<- cbind(spp.scrs, abrev = abbreviate(spp.scrs$Species, minlength = 6)) #abbreviate species names
+sig.spp.scrs <- subset(spp.scrs, pval<0.01) #subset data to show species significant at 0.05
+
+head(sig.spp.scrs)
+sig.spp.scrs
+
+
+# refine the plot (you can pull out "plot" from the gg_ordiplot call)
+p_nmds.12 <- p_nmds.12months$plot + 
+  theme_bw()+ 
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position= "none") + 
+  labs(colour= "Treatment") +
+  theme_pubr(base_size = 16)+
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF","#009999","#FF9966"))+
+   # scale_alpha_manual(values=c(1,0.5,0.5,0.5,0.5)) +
+  ggtitle("g) Twelve Months")+
+  ylim(1.75,-1.75) +
+  xlim(-1.75,1.75)
+
+p_nmds.12
+
+# plot the species only
+p_species.12 <- ggplot()+ 
+  geom_segment(data = sig.spp.scrs, 
+               aes(x = 0, xend=NMDS1, y=0, yend=NMDS2), 
+               arrow = arrow(length = unit(0.25, "cm")), 
+               colour = "grey10", lwd=0.3)+
+  #add vector arrows of significant species
+  ggrepel::geom_text_repel(data = sig.spp.scrs, 
+                           aes(x=NMDS1, y=NMDS2, label = Species), 
+                           cex = 4, direction = "both", segment.size = 0.25) +
+  ylim(1.75,-1.75) +
+  xlim(-1.75,1.75)+
+  theme_pubr(base_size = 16) +
+  labs(x="NMDS1", y="NMDS2") +
+  ggtitle("h) ") +
+  labs(colour="Treatment") +
+  guides(colour=TRUE)
+
+p_species.12
+
+
+
+p_nmds.12
+
+ggsave(p_nmds.12, file="../figures/nmds-12months.png",
+       height=8, width=9)
+
+```
+
+
+Put NMDS Plots together
+```{r}
+
+p_nmds_all <- ggarrange(p_nmds.1, p_species.1,
+                        p_nmds.2, p_species.2,
+                        p_nmds.five, p_species.five,
+                        p_nmds.12, p_species.12,
+                        common.legend = TRUE, 
+                        legend="right", ncol=2, nrow=4)
+
+p_nmds_all # i think its too large so it doesnʻt print, but will save
+
+ggsave(p_nmds_all, file="../figures/nmds-all.png",
+       height=14, width=10)
+```
+
+
+
+# Permanova
+https://gist.github.com/mcgoodman/58c9d1257fd1625954a4ffa1c3301939
+- this doesnʻt allow for strata 
+- permanova doesnʻt usually have the pairwise comparison, so we use this function that Maurice wrote
+
+## One Month
+```{r}
+source("functions/pairwise_permanova.R") # Mauriceʻs function that he wrote
+
+
+data_one.month <- data_wide %>%
+  filter(Time_point == "One Month") %>%
+  droplevels()
+
+colnames(data_one.month) # 8 36
+
+# Block as random
+perm <- how(nperm = 1000)
+setBlocks(perm) <- with(data_one.month, Block)
+
+adonis2(formula= data_one.month[8:36] ~ data_one.month$Treatment, method="bray", by="margin", perm=perm)
+# significant
+
+groups <- as.character(data_one.month$Treatment)
+pairwise_permanova(data_one.month[8:36], groups)
+
+```
+
+
+## Two Months
+```{r}
+data_two.months <- data_wide %>%
+  filter(Time_point == "Two Months") %>%
+  droplevels()
+
+
+# Block as random
+perm <- how(nperm = 1000)
+setBlocks(perm) <- with(data_two.months, Block)
+
+adonis2(formula= data_two.months[8:36] ~ data_two.months$Treatment, method="bray", by="margin", perm=perm)
+# significant
+
+groups <- as.character(data_two.months$Treatment)
+pairwise_permanova(data_two.months[8:36], groups)
+```
+
+
+
+## Five Months
+```{r}
+source("functions/pairwise_permanova.R") 
+
+str(data_wide) 
+colnames(data_wide)
+
+
+data_five.months <- data_wide %>%
+  filter(Time_point == "Five Months") %>%
+  droplevels()
+
+# Block as random
+perm <- how(nperm = 1000)
+setBlocks(perm) <- with(data_five.months, Block)
+
+adonis2(formula= data_five.months[8:36] ~ data_five.months$Treatment, method="bray", by="margin", perm=perm)
+# significant
+
+# Maurice's pairwise permanova function
+groups <- as.character(data_five.months$Treatment) # Apparently, my function doesn't like factors
+pairwise_permanova(data_five.months[8:36], groups)
+
+```
+
+
+## Twelve Months
+```{r}
+source("functions/pairwise_permanova.R") 
+
+str(data_wide) 
+data_twelve.months <- data_wide %>%
+  filter(Time_point == "Twelve Months") %>%
+  droplevels()
+
+# Block as random
+perm <- how(nperm = 1000)
+setBlocks(perm) <- with(data_twelve.months, Block)
+
+adonis2(formula= data_twelve.months[8:36] ~ data_twelve.months$Treatment, method="bray", by="margin", perm=perm)
+# significant
+
+# Maurice's pairwise permanova function
+groups <- as.character(data_twelve.months$Treatment) # Apparently, my function doesn't like factors
+pairwise_permanova(data_twelve.months[8:36], groups)
+
+```
+
+
+
+
+

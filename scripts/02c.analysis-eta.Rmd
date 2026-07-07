@@ -1,0 +1,770 @@
+---
+title: "ETA"
+author: "Jamie McDevitt-Irwin"
+date: "2023-10-12"
+output: html_document
+---
+
+
+
+# Packages
+```{r, echo=FALSE}
+library(tidyverse);library(ggplot2);library(vegan);library(zoo);library(ggpubr);library(plotly);library(ggordiplots);library(ecotraj);library(DHARMa);library(ggeffects);library(emmeans);library(indicspecies);library(lme4);library(performance)
+```
+
+
+# Load Data
+```{r}
+load("../data/created-data/broad.df_long.RData")
+load("../data/created-data/broad.df_wide.RData")
+load("../data/created-data/data_long.RData")
+load("../data/created-data/data_wide.RData")
+load("../data/created-data/diversity.df_wide.RData")
+load("../data/created-data/herbivores_long.RData")
+load("../data/created-data/metadata.RData")
+
+```
+
+# 12 Months
+
+
+https://emf-creaf.github.io/ecotraj/articles/IntroductionETA.html
+Be careful with CTA because the order of the different treatments isn't the same by subsetted dataset. 
+They dont suggest square rooting your bray analysis.
+
+## Overall
+```{r}
+# CTA Analysis
+# average all the percent cover data by treatment and time point
+colnames(data_wide)
+
+cta.data <- data_wide %>%
+  group_by(Time_point, Treatment) %>%
+  # average our taxa for each time point and treatment (across plots)
+    summarise_at(vars(Bare.rock:Eggs), mean, na.rm = TRUE) %>%
+  droplevels()
+
+dim(cta.data) # 65 plots (not 66 because we missed sampling one plot once )
+
+# Prep the data
+sites= cta.data$Treatment
+surveys= cta.data$Time_point
+#D= dist(cta.data[3:28]) # here we are just using euclidian distance (length of a line segment between two points)
+#is.metric(D) # TRUE (yes because its euclidean)
+
+# test out bray
+colnames(cta.data)
+D <- vegan::vegdist(cta.data[3:31], "bray")
+x <- defineTrajectories(D, sites) # surveys only needed if sites are not in order
+
+
+
+is.metric(D) # TRUE, so wouldn't need to do any transformation for CTA
+# seems to be fine then! we can  use bray-curtis 
+
+# check the order for the legend
+levels(cta.data$Treatment)
+
+pdf(file="../figures/cta.pdf", height=8, width=11)
+
+trajectoryPCoA(x, traj.colors =c("#006699", "#CC33CC", "#FF99FF","#009999","#FF9966"),lwd=4)
+legend("topleft", col=c("#006699", "#CC33CC","#FF99FF","#009999" ,"#FF9966"),
+       legend=c("Always caged", 
+                "Always uncaged", 
+                "Cage control", 
+                "Caged for one month",
+                "Unmanipulated control"), 
+       bty="n", lty=1, lwd = 2)
+
+dev.off()
+
+
+trajectoryLengths(x)
+# total length pathway
+# always caged has the longest total pathway, always uncaged has teh lowest total pathway
+# you can see huge trajectory lengths early on for caged treatments
+# summing up the whole path you see that always caged and caged for one month have the longest pathways 
+ 
+trajectoryAngles(x)
+# caged for one month has the greatest angles then always uncaged
+# always caged and unmanipulated control and cage contorl have the lowest angles 
+
+
+trajectoryDirectionality(x) #overall directionality of a ecosystem trajectory (i.e. if the pathway consistently follows the same direction in Ω
+# unmanpulated control has the lowest directionality, always uncaged and cage control have the highest
+
+
+trajectoryConvergence(x) # The function performs the Mann-Whitney trend test. Values of the statistic (‘tau’) larger than 0 correspond to trajectories that are diverging, whereas values lower than 0 correspond to trajectories that are converging. 
+# Diverging:unanipulated control and always caged, unmanipulated control and always uncaged, unmanpulated control and caged forone month
+# nothing really interesting? 
+
+
+trajectoryInternalVariation(x)
+# internal variation of tates within each trajectory
+# more curved == lower inernal variation
+# can see caged for one month is really high at ss_2
+```
+
+
+
+## By Plot
+```{r}
+# Run these on the entire dataset for the plot level
+str(data_wide)
+dim(data_wide)
+
+# get rid of plot 35 that is missing a time point
+cta_data <- data_wide %>%
+  filter(!Plot == "35") %>%
+  droplevels()
+dim(cta_data)
+
+# Prep the data
+sites= cta_data$Plot
+surveys= cta_data$Time_point
+colnames(cta_data)
+D = vegan::vegdist(cta_data[8:36], "bray")
+is.metric(D) # TRUE
+
+# Define trajectories
+unique(surveys)
+x <- defineTrajectories(D, sites) # surveys only needed if sites are not in order
+
+
+# Get plot level values
+lengths <- trajectoryLengths(x) # we want Path = total path length
+#View(lengths)
+
+angles <- trajectoryAngles(x) # we want mean = mean angles
+#View(angles)
+
+directionality <- as.data.frame(trajectoryDirectionality(x))
+
+
+#View(directionality)
+# Add these back to metadata
+cta.metadata <- metadata %>%
+  filter(!Plot == "35") %>%
+  droplevels()
+
+
+cta.full.df <- left_join(cta.metadata, 
+                         rownames_to_column(lengths), by=c("Plot"="rowname")) %>%
+  left_join(rownames_to_column(angles), 
+            by=c("Plot"="rowname")) %>%
+  left_join(rownames_to_column(directionality), 
+            by=c("Plot"="rowname")) %>%
+  rename("directionality"= "trajectoryDirectionality(x)") %>%
+  rename(Total.Path.Length = Path) %>%
+  rename(Mean.Angles = mean)
+
+colnames(cta.full.df)
+
+#View(cta.full.df)
+# i think we are interested in trajectory, mean and directionality
+#mean =angesl
+
+# Trajectory length
+# the total pathway length 
+p_traj_lengths <- cta.full.df %>%
+  ggplot(aes(x=Treatment, y=Total.Path.Length, color=Treatment)) +
+  geom_boxplot() +
+  geom_jitter(size=2)+
+  theme_pubr(base_size=16) + 
+  theme(axis.text.x=element_blank())+
+  labs(y="Trajectory Lengths")+
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF","#009999" ,"#FF9966")) +
+  scale_fill_manual(values=c("#006699", "#CC33CC","#FF99FF", "#009999", "#FF9966"))+
+  ggtitle("a)")
+# Shows that always caged, caged for one month  have the longest trajectories? have the biggest changes over months? 
+p_traj_lengths
+
+
+
+
+# Angles
+p_traj_angles <- cta.full.df %>%
+  ggplot(aes(x=Treatment, y=Mean.Angles, colour=Treatment)) +
+geom_boxplot() +
+  geom_jitter(size=2)+
+  theme_pubr(base_size=16) + 
+  theme(axis.text.x=element_blank())+
+  labs(y="Angles")+
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF","#009999" ,"#FF9966")) +
+  scale_fill_manual(values=c("#006699", "#CC33CC","#FF99FF", "#009999", "#FF9966"))+
+  ggtitle("a)")
+# always uncaged, caged for one month and unmanipulated have the biggest angles (biggest switches in directions?)
+
+p_traj_angles
+
+# Directionality
+p_traj_direction <- cta.full.df %>%
+  ggplot(aes(x=Treatment, y=directionality, colour=Treatment)) +
+  geom_boxplot()+
+  geom_jitter(size=2)+
+  theme_pubr(base_size=16) + 
+  theme(axis.text.x=element_blank())+
+  labs(y="Trajectory Directionality")+
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF","#009999" ,"#FF9966")) +
+  scale_fill_manual(values=c("#006699", "#CC33CC","#FF99FF", "#009999","#FF9966"))+ ggtitle("b)")
+# always caged and unmanipulated have the lowest directionality 
+#overall directionality of a ecosystem trajectory (i.e. if the pathway consistently follows the same direction in Ω
+p_traj_direction
+ 
+```
+
+
+
+### Trajectory Length
+```{r}
+str(cta.full.df)
+hist(cta.full.df$Total.Path.Length)
+range(cta.full.df$Total.Path.Length) # all positive, continuous
+dim(cta.full.df) # 59 plots because we had to exclude one 
+
+# Total Length Pathway
+model1 <- lmer(Total.Path.Length ~ Treatment + (1|Block), data = cta.full.df)
+summary(model1)
+performance::r2(model1)  
+car::Anova(model1, type=2) # significant
+
+check_model(model1) # looks good
+
+# check against fixed effects
+res_simulated <- simulateResiduals(model1, plot=TRUE) # some significance, but we do have a big N
+
+plotResiduals(res_simulated, cta.full.df$Treatment) # ok
+
+
+
+emmip(model1, ~ Treatment) #always caged, caged for one month have the longest trajectories
+
+
+EMM <- emmeans(model1, "Treatment")
+EMM
+pairs(EMM, adjust="Tukey")
+# always caged vs uncaged
+# always caged vs cage control
+# always caged vs unmanipulated
+# always uncaged vs caged for one month
+
+
+p_emmeans_lengths <- as.data.frame(EMM) %>%
+  ggplot(aes(x=Treatment, y=emmean, colour=Treatment)) +
+  geom_pointrange(aes(ymin=lower.CL, ymax=upper.CL), size=1.2) +
+  theme_pubr(base_size=16) + 
+  theme(axis.text.x=element_blank())+
+  labs(y="Trajectory Length (emmean +/- 95% CI)")+
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF",
+                               "#009999" ,"#FF9966")) +
+  scale_fill_manual(values=c("#006699", "#CC33CC","#FF99FF", 
+                             "#009999","#FF9966"))+
+  ggtitle("a)")
+p_emmeans_lengths 
+```
+
+
+
+### Angles
+```{r}
+str(cta.full.df)
+hist(cta.full.df$Mean.Angles)
+range(cta.full.df$Mean.Angles) # all positive, continuous
+dim(cta.full.df) # 59 plots because we had to exclude one 
+
+
+# Angles
+model1 <- lmer(Mean.Angles ~ Treatment + (1|Block), data = cta.full.df) 
+summary(model1)
+performance::r2(model1)  
+car::Anova(model1, type=2) # significant
+
+check_model(model1) # loooks ok enough
+
+# check against fixed effects
+res_simulated <- simulateResiduals(model1, plot=TRUE) # some significance, but we do have a big N
+
+plotResiduals(res_simulated, cta.full.df$Treatment) # ok
+
+
+
+emmip(model1, ~ Treatment) # unmanipulated control, caged for one montha and always uncaged have the largest angles
+EMM <- emmeans(model1, "Treatment")
+EMM
+pairs(EMM, adjust="Tukey")
+
+
+
+
+p_emmeans_angles <- as.data.frame(EMM) %>%
+  ggplot(aes(x=Treatment, y=emmean, colour=Treatment)) +
+  geom_pointrange(aes(ymin=lower.CL, ymax=upper.CL), size=1.2) +
+  theme_pubr(base_size=16) + 
+  theme(axis.text.x=element_blank())+
+  labs(y="Trajectory Angle (emmean +/- 95% CI)")+
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF",
+                               "#009999" ,"#FF9966")) +
+  scale_fill_manual(values=c("#006699", "#CC33CC","#FF99FF", 
+                             "#009999","#FF9966"))+
+  ggtitle("b)")
+p_emmeans_angles
+```
+
+
+
+
+
+### Directionality
+```{r}
+str(cta.full.df)
+hist(cta.full.df$directionality)
+range(cta.full.df$directionality) # all positive, continuous
+dim(cta.full.df) # 59 plots because we had to exclude one 
+
+
+# Directionality
+model1 <- lmer(directionality ~ Treatment + (1|Block), data = cta.full.df)
+summary(model1)
+performance::r2(model1)  
+car::Anova(model1, type=2) # significant
+
+check_model(model1) # homogeneity of variance is not great? but maybe ok? its a small sample size
+# plot #2 does seem to be an outlier at 0.7
+
+# check against fixed effects
+res_simulated <- simulateResiduals(model1, plot=TRUE) 
+
+plotResiduals(res_simulated, cta.full.df$Treatment) # ok
+
+
+
+emmip(model1, ~ Treatment) # always uncaged and cage control have the highest directionality
+EMM <- emmeans(model1, "Treatment")
+EMM
+pairs(EMM, adjust="Tukey")
+
+p_emmeans_direction <- as.data.frame(EMM) %>%
+  ggplot(aes(x=Treatment, y=emmean, colour=Treatment)) +
+  geom_pointrange(aes(ymin=lower.CL, ymax=upper.CL), size=1.2) +
+  theme_pubr(base_size=16) + 
+  theme(axis.text.x=element_blank())+
+  labs(y="Trajectory Directionality (emmean +/- 95% CI)")+
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF",
+                               "#009999" ,"#FF9966")) +
+  scale_fill_manual(values=c("#006699", "#CC33CC","#FF99FF", 
+                             "#009999","#FF9966"))+
+  ggtitle("c)")
+p_emmeans_direction
+
+
+# Try the model without the outlier and see if it fits better
+test <- cta.full.df %>%
+  filter(!directionality > 0.7)
+model1 <- lmer(directionality ~ Treatment + (1|Block), data = test)
+
+performance::r2(model1)  
+car::Anova(model1, type=2) # significant
+
+check_model(model1) # better without this outlier
+
+emmip(model1, ~ Treatment) # always uncaged and cage control have the highest directionality
+EMM <- emmeans(model1, "Treatment")
+EMM
+pairs(EMM, adjust="Tukey")
+# same qualitative result
+# so report the results above with the outlier included
+```
+
+
+```{r}
+p_emmean_all <- ggarrange(p_emmeans_lengths,
+          p_emmeans_angles,
+          p_emmeans_direction,
+          common.legend=TRUE,
+          ncol=3)
+p_emmean_all
+ggsave(p_emmean_all, file="../figures/emmeans-eta.png",
+       height=6, width=11)
+```
+
+
+
+
+# Five Months
+
+
+Replicated on the five month data, prior to herbivores increasing in the cages. This will go in the supplement.
+
+## Overall
+```{r}
+# CTA Analysis
+# average all the percent cover data by treatment and time point
+colnames(data_wide)
+
+cta.data <- data_wide %>%
+  # filter to only five months
+   filter(Time_point %in% c("Time Zero",
+                           "One Month",
+                           "Two Months",
+                           "Three Months",
+                           "Four Months",
+                           "Five Months")) %>%
+  group_by(Time_point, Treatment) %>%
+  # average our taxa for each time point and treatment (across plots)
+    summarise_at(vars(Bare.rock:Eggs), mean, na.rm = TRUE) %>%
+  droplevels()
+
+dim(cta.data) # 65 plots (not 66 because we missed sampling one plot once )
+
+# Prep the data
+sites= cta.data$Treatment
+surveys= cta.data$Time_point
+#D= dist(cta.data[3:28]) # here we are just using euclidian distance (length of a line segment between two points)
+#is.metric(D) # TRUE (yes because its euclidean)
+
+# test out bray
+colnames(cta.data)
+D <- vegan::vegdist(cta.data[3:31], "bray")
+x <- defineTrajectories(D, sites) # surveys only needed if sites are not in order
+
+
+
+is.metric(D) # TRUE, so wouldn't need to do any transformation for CTA
+# seems to be fine then! we can  use bray-curtis 
+
+# check the order for the legend
+levels(cta.data$Treatment)
+
+pdf(file="../figures/cta.pdf", height=8, width=11)
+
+trajectoryPCoA(x, traj.colors =c("#006699", "#CC33CC", "#FF99FF","#009999","#FF9966"),lwd=4)
+legend("topleft", col=c("#006699", "#CC33CC","#FF99FF","#009999" ,"#FF9966"),
+       legend=c("Always caged", 
+                "Always uncaged", 
+                "Cage control", 
+                "Caged for one month",
+                "Unmanipulated control"), 
+       bty="n", lty=1, lwd = 2)
+
+dev.off()
+
+
+trajectoryLengths(x)
+# total length pathway
+# always caged has the longest total pathway, always uncaged has teh lowest total pathway
+# you can see huge trajectory lengths early on for caged treatments
+# summing up the whole path you see that always caged and caged for one month have the longest pathways 
+ 
+trajectoryAngles(x)
+# caged for one month has the greatest angles then always uncaged
+# always caged and unmanipulated control and cage contorl have the lowest angles 
+
+
+trajectoryDirectionality(x) #overall directionality of a ecosystem trajectory (i.e. if the pathway consistently follows the same direction in Ω
+# unmanpulated control has the lowest directionality, always uncaged and cage control have the highest
+
+
+trajectoryConvergence(x) # The function performs the Mann-Whitney trend test. Values of the statistic (‘tau’) larger than 0 correspond to trajectories that are diverging, whereas values lower than 0 correspond to trajectories that are converging. 
+# Diverging:unanipulated control and always caged, unmanipulated control and always uncaged, unmanpulated control and caged forone month
+# nothing really interesting? 
+
+
+trajectoryInternalVariation(x)
+# internal variation of tates within each trajectory
+# more curved == lower inernal variation
+# can see caged for one month is really high at ss_2
+```
+
+
+
+## By Plot
+```{r}
+# Run these on the entire dataset for the plot level
+str(data_wide)
+dim(data_wide)
+
+# get rid of plot 35 that is missing a time point
+cta_data <- data_wide %>%
+  filter(!Plot == "35") %>%
+   filter(Time_point %in% c("Time Zero",
+                           "One Month",
+                           "Two Months",
+                           "Three Months",
+                           "Four Months",
+                           "Five Months")) %>%
+  droplevels()
+dim(cta_data)
+
+# Prep the data
+sites= cta_data$Plot
+surveys= cta_data$Time_point
+colnames(cta_data)
+D = vegan::vegdist(cta_data[8:36], "bray")
+is.metric(D) # TRUE
+
+# Define trajectories
+unique(surveys)
+x <- defineTrajectories(D, sites) # surveys only needed if sites are not in order
+
+
+# Get plot level values
+lengths <- trajectoryLengths(x) # we want Path = total path length
+#View(lengths)
+
+angles <- trajectoryAngles(x) # we want mean = mean angles
+#View(angles)
+
+directionality <- as.data.frame(trajectoryDirectionality(x))
+
+
+#View(directionality)
+# Add these back to metadata
+cta.metadata <- metadata %>%
+  # get rid of plot 35 that we are missing
+  filter(!Plot == "35") %>%
+  droplevels()
+
+
+cta.full.df <- left_join(cta.metadata, 
+                         rownames_to_column(lengths), by=c("Plot"="rowname")) %>%
+  left_join(rownames_to_column(angles), 
+            by=c("Plot"="rowname")) %>%
+  left_join(rownames_to_column(directionality), 
+            by=c("Plot"="rowname")) %>%
+  rename("directionality"= "trajectoryDirectionality(x)") %>%
+  rename(Total.Path.Length = Path) %>%
+  rename(Mean.Angles = mean)
+
+colnames(cta.full.df)
+
+#View(cta.full.df)
+# i think we are interested in trajectory, mean and directionality
+#mean =angesl
+
+# Trajectory length
+# the total pathway length 
+p_traj_lengths <- cta.full.df %>%
+  ggplot(aes(x=Treatment, y=Total.Path.Length, color=Treatment)) +
+  geom_boxplot() +
+  geom_jitter(size=2)+
+  theme_pubr(base_size=16) + 
+  theme(axis.text.x=element_blank())+
+  labs(y="Trajectory Lengths")+
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF","#009999" ,"#FF9966")) +
+  scale_fill_manual(values=c("#006699", "#CC33CC","#FF99FF", "#009999", "#FF9966"))+
+  ggtitle("a)")
+# Shows that always caged, caged for one month  have the longest trajectories? have the biggest changes over months? 
+p_traj_lengths
+
+ggsave(p_traj_lengths, file="../figures/trajectory-lengths.png",
+       height=7, width=10)
+
+
+
+
+
+
+# Angles
+p_traj_angles <- cta.full.df %>%
+  ggplot(aes(x=Treatment, y=Mean.Angles, colour=Treatment)) +
+geom_boxplot() +
+  geom_jitter(size=2)+
+  theme_pubr(base_size=16) + 
+  theme(axis.text.x=element_blank())+
+  labs(y="Angles")+
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF","#009999" ,"#FF9966")) +
+  scale_fill_manual(values=c("#006699", "#CC33CC","#FF99FF", "#009999", "#FF9966"))+
+  ggtitle("a)")
+# always uncaged, caged for one month and unmanipulated have the biggest angles (biggest switches in directions?)
+
+
+
+# Directionality
+p_traj_direction <- cta.full.df %>%
+  ggplot(aes(x=Treatment, y=directionality, colour=Treatment)) +
+  geom_boxplot()+
+  geom_jitter(size=2)+
+  theme_pubr(base_size=16) + 
+  theme(axis.text.x=element_blank())+
+  labs(y="Trajectory Directionality")+
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF","#009999" ,"#FF9966")) +
+  scale_fill_manual(values=c("#006699", "#CC33CC","#FF99FF", "#009999","#FF9966"))+ ggtitle("b)")
+# always caged and unmanipulated have the lowest directionality 
+#overall directionality of a ecosystem trajectory (i.e. if the pathway consistently follows the same direction in Ω
+p_traj_direction
+
+
+ggsave(p_traj_direction, file="../figures/trajectory-directionality.png",
+       height=7, width=10)
+
+```
+
+
+
+### Trajectory Length
+```{r}
+str(cta.full.df)
+hist(cta.full.df$Total.Path.Length)
+range(cta.full.df$Total.Path.Length) # all positive, continuous
+dim(cta.full.df) # 59 plots because we had to exclude one 
+
+# Total Length Pathway
+model1 <- lmer(Total.Path.Length ~ Treatment + (1|Block), data = cta.full.df)
+summary(model1)
+performance::r2(model1)  
+car::Anova(model1, type=2) # significant
+
+check_model(model1) # looks good
+
+# check against fixed effects
+res_simulated <- simulateResiduals(model1, plot=TRUE) # ok
+
+plotResiduals(res_simulated, cta.full.df$Treatment) # ok
+
+
+
+emmip(model1, ~ Treatment) #always caged, caged for one month have the longest trajectories
+
+
+EMM <- emmeans(model1, "Treatment")
+EMM
+pairs(EMM, adjust="Tukey")
+# always caged vs uncaged
+# always caged vs cage control
+# always caged vs unmanipulated
+# always uncaged vs caged for one month
+
+
+p_emmeans_lengths_five <- as.data.frame(EMM) %>%
+  ggplot(aes(x=Treatment, y=emmean, colour=Treatment)) +
+  geom_pointrange(aes(ymin=lower.CL, ymax=upper.CL), size=1.2) +
+  theme_pubr(base_size=16) + 
+  theme(axis.text.x=element_blank())+
+  labs(y="Trajectory Length (emmean +/- 95% CI)")+
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF",
+                               "#009999" ,"#FF9966")) +
+  scale_fill_manual(values=c("#006699", "#CC33CC","#FF99FF", 
+                             "#009999","#FF9966"))+
+  ggtitle("a)")
+p_emmeans_lengths_five 
+```
+
+
+
+### Angles
+```{r}
+str(cta.full.df)
+hist(cta.full.df$Mean.Angles)
+range(cta.full.df$Mean.Angles) # all positive, continuous
+dim(cta.full.df) # 59 plots because we had to exclude one 
+
+
+# Angles
+model1 <- lmer(Mean.Angles ~ Treatment + (1|Block), data = cta.full.df) 
+summary(model1)
+performance::r2(model1)  
+car::Anova(model1, type=2) # not significant
+
+check_model(model1) # loooks ok enough
+
+# check against fixed effects
+res_simulated <- simulateResiduals(model1, plot=TRUE) # ok
+
+plotResiduals(res_simulated, cta.full.df$Treatment) # ok
+
+
+
+emmip(model1, ~ Treatment) # unmanipulated control, caged for one montha and always uncaged have the largest angles
+EMM <- emmeans(model1, "Treatment")
+# not sig, so no posthoc contrasts
+
+
+
+p_emmeans_angles_five <- as.data.frame(EMM) %>%
+  ggplot(aes(x=Treatment, y=emmean, colour=Treatment)) +
+  geom_pointrange(aes(ymin=lower.CL, ymax=upper.CL), size=1.2) +
+  theme_pubr(base_size=16) + 
+  theme(axis.text.x=element_blank())+
+  labs(y="Trajectory Angle (emmean +/- 95% CI)")+
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF",
+                               "#009999" ,"#FF9966")) +
+  scale_fill_manual(values=c("#006699", "#CC33CC","#FF99FF", 
+                             "#009999","#FF9966"))+
+  ggtitle("b)")
+p_emmeans_angles_five
+```
+
+
+
+
+
+### Directionality
+```{r}
+str(cta.full.df)
+hist(cta.full.df$directionality)
+range(cta.full.df$directionality) # all positive, continuous
+dim(cta.full.df) # 59 plots because we had to exclude one 
+
+
+# Directionality
+model1 <- lmer(directionality ~ Treatment + (1|Block), data = cta.full.df)
+summary(model1)
+performance::r2(model1)  
+car::Anova(model1, type=2) # not significant
+
+check_model(model1) # all good
+
+# check against fixed effects
+res_simulated <- simulateResiduals(model1, plot=TRUE) 
+
+plotResiduals(res_simulated, cta.full.df$Treatment) # ok
+
+
+
+emmip(model1, ~ Treatment) # always uncaged and cage control have the highest directionality
+EMM <- emmeans(model1, "Treatment")
+# not sig so no posthoc contrasts
+
+p_emmeans_direction <- as.data.frame(EMM) %>%
+  ggplot(aes(x=Treatment, y=emmean, colour=Treatment)) +
+  geom_pointrange(aes(ymin=lower.CL, ymax=upper.CL), size=1.2) +
+  theme_pubr(base_size=16) + 
+  theme(axis.text.x=element_blank())+
+  labs(y="Trajectory Directionality (emmean +/- 95% CI)")+
+  scale_colour_manual(values=c("#006699", "#CC33CC","#FF99FF",
+                               "#009999" ,"#FF9966")) +
+  scale_fill_manual(values=c("#006699", "#CC33CC","#FF99FF", 
+                             "#009999","#FF9966"))+
+  ggtitle("c)")
+p_emmeans_direction
+
+
+# Try the model without the outlier adn see if it fits better
+test <- cta.full.df %>%
+  filter(!directionality > 0.7)
+model1 <- lmer(directionality ~ Treatment + (1|Block), data = test)
+
+performance::r2(model1)  
+car::Anova(model1, type=2) # not significant
+
+check_model(model1) # better without this outlier
+
+emmip(model1, ~ Treatment) # always uncaged and cage control have the highest directionality
+EMM <- emmeans(model1, "Treatment")
+
+# same qualitative result
+# so report the results above with the outlier included
+```
+
+
+```{r}
+p_emmean_all <- ggarrange(p_emmeans_lengths,
+          p_emmeans_angles,
+          p_emmeans_direction,
+          common.legend=TRUE,
+          ncol=3)
+p_emmean_all 
+
+ggsave(p_emmean_all, file="../figures/emmeans-eta.png",
+       height=6, width=11)
+```
